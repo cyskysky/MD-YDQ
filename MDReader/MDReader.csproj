@@ -1,0 +1,145 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- 必须带 Windows SDK 版本，后缀 17763 才能引用新版 WebView2 的 WPF 控件；仍是 .NET 8 -->
+    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- 输出文件名：MD阅读器.exe -->
+    <AssemblyName>MD阅读器</AssemblyName>
+    <RootNamespace>MDReader</RootNamespace>
+    <Version>1.0</Version>
+    <Product>MD阅读器</Product>
+    <Description>简洁专业的 Markdown 阅读器：层级目录 / 实时预览 / 日夜主题</Description>
+    <Company></Company>
+    <Copyright>Copyright © 2026</Copyright>
+    <NeutralLanguage>zh-CN</NeutralLanguage>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 自包含独立 exe：目标机无需安装 .NET 8 运行时，双击即用 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- WPF 与裁剪不兼容，必须关闭 -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <!-- 单文件发布时仍生成可直接运行的 exe（含运行时 + 依赖） -->
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <!-- 发布目录只保留独立 exe：不拷贝 NuGet 的 .xml 文档 -->
+    <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
+    <!-- 软件图标：任务栏 / 标题栏 / 资源管理器统一使用 -->
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- Release 发布包不带调试符号，保持“一个 exe 干干净净” -->
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+    <!-- 不发布调试器支持文件（DiaSymReader/mscordaccore，约 -3MB，正常运行不需要） -->
+    <DebuggerSupport>false</DebuggerSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="0.37.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2957.106" />
+    <!-- 图标同时作为窗口资源，供标题栏左上角使用 -->
+    <Resource Include="Assets\AppIcon.ico" />
+    <!-- Mermaid 图表库（v11.4.1，离线内嵌）：有 ```mermaid 代码块的文档才注入，
+         单文件发布时打进 exe，无需联网、无需外部文件 -->
+    <EmbeddedResource Include="Assets\mermaid.min.js" />
+    <!-- KaTeX 公式库（v0.16.11，离线内嵌，字体已转 data URI）：有公式才注入 -->
+    <EmbeddedResource Include="Assets\katex.min.js" />
+    <EmbeddedResource Include="Assets\katex-auto-render.min.js" />
+    <EmbeddedResource Include="Assets\katex.css" />
+    <!-- highlight.js 代码高亮（v11.9.0 全语言包 + github 亮色 / github-dark-dimmed 柔和暗色，离线内嵌）：有代码块才注入 -->
+    <EmbeddedResource Include="Assets\hljs.min.js" />
+    <EmbeddedResource Include="Assets\hljs-github.min.css" />
+    <EmbeddedResource Include="Assets\hljs-github-dark-dimmed.min.css" />
+  </ItemGroup>
+
+  <!-- 瘦身：剔除发布包中的冗余项（已实证安全，见下）。
+       1) WebView2 包硬带入的 System.Windows.Forms.*：纯 WPF 程序永不加载，
+          且 WebView2.Wpf.dll 并不引用它，约 -21MB。
+       2) 仅供外部调试器/dump分析的诊断组件（DiaSymReader/mscordaccore），正常运行不需要。
+       注意 SDK.NET.dll 是 WebView2 的真实依赖，必须保留。
+       实现细节：单文件打包消费的是 _FilesToBundle/FilesToBundle 快照（见 SDK 的
+       _ComputeFilesToBundle/PrepareForBundle），只修 ResolvedFileToPublish 不够，
+       三个列表都要剔，且钩子必须挂在 PrepareForBundle 之后（打包任务之前）。
+       另注意 Remove 条件里用属性函数（StartsWith）批量匹配不可靠，一律用精确文件名。 -->
+  <!-- 瘦身（引用级，根治）：WebView2 包硬带入 System.Windows.Forms.* 引用，但本程序为纯 WPF、
+       且已实证 WebView2.Wpf.dll 并不引用 WinForms 任何类型。在 ResolveAssemblyReferences 之前
+       直接去掉引用，从编译闭包根上消除（约 -21MB，对多文件/单文件发布同时生效）。
+       注意 SDK.NET.dll 是 WebView2 的真实依赖，必须保留。 -->
+  <Target Name="DropWinFormsReferences" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'System.Windows.Forms'" />
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'System.Windows.Forms.Design'" />
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'System.Windows.Forms.Primitives'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- 瘦身：剔除发布包中的冗余项（已实证安全）。
+       1) WebView2 包硬带入的 System.Windows.Forms.*：纯 WPF 程序永不加载，
+          且 WebView2.Wpf.dll 并不引用它，约 -21MB。
+       2) 仅供外部调试器/dump分析的诊断组件（DiaSymReader/mscordaccore），正常运行不需要。
+       注意 SDK.NET.dll 是 WebView2 的真实依赖，必须保留。
+       实现细节（血泪教训）：
+       - 单文件打包消费的是 _FilesToBundle/FilesToBundle 快照，钩子必须挂在
+         PrepareForBundle 之后（打包任务之前）；
+       - Remove（无论带条件还是纯通配符）在此流程里实际不生效，
+         必须改用 Exclude 重建列表（通配符按 identity 匹配，稳定可靠）。 -->
+  <!-- 瘦身（确定性方案 v2，2026-09）：剔除发布包中的冗余项（已实证安全）。
+       1) WebView2 包硬带入的 System.Windows.Forms.*：纯 WPF 程序永不加载，
+          且 WebView2.Wpf.dll 并不引用它，约 -21MB。
+       2) 仅供外部调试器/dump分析的诊断组件（DiaSymReader/mscordaccore），正常运行不需要。
+       注意 SDK.NET.dll 是 WebView2 的真实依赖，必须保留。
+       血泪教训（v1 方案作废）：直接重建 _FilesToBundle/FilesToBundle 快照是抽奖的——
+       SDK 在 PrepareForBundle 之后还会重算/补回文件，同源码打出过 191MB 与 165MB
+       两种包。v2 只用官方支持的确定性机制，不碰任何快照列表：
+       a) MarkTrimJunk：BeforeTargets="GenerateSingleFileBundle"（含 GenerateBundle 任务的
+         目标，打包前最后一刻），给冗余项打 ExcludeFromSingleFile=true
+         （SDK 计算 bundle 输入时原生消费该元数据，与打包时序无关）；
+       b) DeleteLooseTrimJunk：Publish 全部完成后，删掉被迫散落在发布目录的冗余散件。
+       效果：exe 缩小约 25MB（~191MB → ~165MB），发布目录只剩单个 exe，多次发布稳定。 -->
+  <!-- 诊断 + 标记：SDK 用 ResolvedFileToPublish 计算 bundle 输入（见 _ComputeFilesToBundle，
+       targets 973-981 行：Include + Condition ExcludeFromSingleFile != true，随后把已打包的
+       从 ResolvedFileToPublish 里 Remove——这也解释了 v1 为何抽奖：在它之后动手的全会被冲掉）。
+       BeforeTargets 只能挂目标名（挂任务名会静默不执行，之前踩过）。此处是计算前最后一刻，
+       Resolved 已就绪，打标后直进 _FilesToBundle → FilesToBundle → GenerateBundle，无人可再补回。
+       名单一律精确 Filename（dump 实测 457 项输入），散件 .resources.dll 按“主名.resources”一网打尽：
+       主程序 + WebView2.Wpf 经全仓 grep 确认零引用 WinForms/VisualBasic/Integration 相关任何类型。 -->
+  <Target Name="MarkTrimJunk" BeforeTargets="_ComputeFilesToBundle">
+    <ItemGroup>
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'System.Windows.Forms'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'System.Windows.Forms.Design'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'System.Windows.Forms.Design.Editors'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'System.Windows.Forms.Primitives'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'WindowsFormsIntegration'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'Microsoft.VisualBasic.Forms'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'System.Windows.Forms.resources'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'System.Windows.Forms.Design.resources'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'System.Windows.Forms.Primitives.resources'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'Microsoft.VisualBasic.Forms.resources'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'WindowsFormsIntegration.resources'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.WinForms'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'mscordbi'" ExcludeFromSingleFile="true" />
+    </ItemGroup>
+    <Warning Text="MARK-JUNK excluded-from-bundle=@(ResolvedFileToPublish->WithMetadataValue('ExcludeFromSingleFile', 'true')->Count())" />
+  </Target>
+
+  <Target Name="DeleteLooseTrimJunk" AfterTargets="Publish">
+    <ItemGroup>
+      <_LooseJunk Include="$(PublishDir)System.Windows.Forms.dll;$(PublishDir)System.Windows.Forms.Design.dll;$(PublishDir)System.Windows.Forms.Design.Editors.dll;$(PublishDir)System.Windows.Forms.Primitives.dll" />
+      <_LooseJunk Include="$(PublishDir)WindowsFormsIntegration.dll;$(PublishDir)Microsoft.VisualBasic.Forms.dll;$(PublishDir)Microsoft.Web.WebView2.WinForms.dll" />
+      <_LooseJunk Include="$(PublishDir)**\System.Windows.Forms*.resources.dll;$(PublishDir)**\Microsoft.VisualBasic.Forms*.resources.dll;$(PublishDir)**\WindowsFormsIntegration*.resources.dll" />
+      <_LooseJunk Include="$(PublishDir)Microsoft.DiaSymReader.Native.*.dll;$(PublishDir)mscordaccore*.dll;$(PublishDir)mscordbi.dll" />
+    </ItemGroup>
+    <Delete Files="@(_LooseJunk)" />
+    <Warning Text="LOOSE-JUNK-DELETED=@(_LooseJunk->Count())" />
+    <!-- 散件删光后，各语系空目录（如 de\、zh-Hans\）会残留：rd 只能删空目录，
+         非空则报错被 2>nul 吃掉，Windows 专用（本工程仅 Windows 构建），非 Windows 跳过 -->
+    <Exec Command='for /d %%d in ("$(PublishDir)*") do @(rd "%%d" 2&gt;nul)' Condition="'$(OS)' == 'Windows_NT'" />
+  </Target>
+
+</Project>

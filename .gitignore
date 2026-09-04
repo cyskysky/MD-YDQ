@@ -1,0 +1,16 @@
+# .NET 构建产物
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+publish/
+publish2/
+
+# 自包含发布包体积大（~180MB），不进版本库；需要时本地 dotnet publish 重新生成
+*.pdb
+# 发布产物目录（单 exe 约 160MB，全部不进仓库）
+MDReader/publish*/
+MDReader/trim*/
+*.exe
+
+# 用户本地运行痕迹
+.vs/
